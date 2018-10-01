@@ -1,0 +1,21 @@
+{
+  "name": "cloud-doctor/provider-aws",
+  "authors": [
+    {
+      "name": "Matthew Baggett",
+      "email": "matthew@baggett.me"
+    }
+  ],
+  "license": "GPL-3.0-or-later",
+  "require": {
+    "php": "^7.2",
+    "ext-curl": "*",
+    "ext-json": "*",
+    "aws/aws-sdk-php": "^3.67.22"
+  },
+  "autoload": {
+    "psr-4": {
+      "CloudDoctor\\": "src/"
+    }
+  }
+}
