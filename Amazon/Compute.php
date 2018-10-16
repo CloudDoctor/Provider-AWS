@@ -23,7 +23,7 @@ class Compute extends \CloudDoctor\Common\Compute
     {
         parent::setRequester($requester);
 
-        foreach($this->config['region'] as $region) {
+        foreach ($this->config['region'] as $region) {
             $this->requester->setupForRegion($region);
         }
 
@@ -38,9 +38,9 @@ class Compute extends \CloudDoctor\Common\Compute
     public function exists(): bool
     {
         $allInstances = $this->requester->acrossRegionAction(
-            function(string $region, Ec2Client $ec2Client){
+            function (string $region, Ec2Client $ec2Client) {
                 $instances = [];
-                foreach($ec2Client->describeInstances()->get('Reservations') as $instance){
+                foreach ($ec2Client->describeInstances()->get('Reservations') as $instance) {
                     $id = $instance['Instances'][0]['InstanceId'];
                     $regionField = ["Region" => $region];
                     $instance['Instances'][0] = $regionField + $instance['Instances'][0];
@@ -50,9 +50,9 @@ class Compute extends \CloudDoctor\Common\Compute
             }
         );
 
-        foreach($allInstances as $instance){
-            foreach($instance['Tags'] as $tag){
-                if($tag['Key'] == 'Name' && $tag['Value'] == $this->getName()){
+        foreach ($allInstances as $instance) {
+            foreach ($instance['Tags'] as $tag) {
+                if ($tag['Key'] == 'Name' && $tag['Value'] == $this->getName()) {
                     return true;
                 }
             }
@@ -95,5 +95,4 @@ class Compute extends \CloudDoctor\Common\Compute
     {
         // TODO: Implement updateMetaData() method.
     }
-
 }
