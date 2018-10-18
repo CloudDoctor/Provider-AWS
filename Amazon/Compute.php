@@ -3,11 +3,13 @@
 namespace CloudDoctor\Amazon;
 
 use Aws\Ec2\Ec2Client;
+use Aws\Ec2\Exception\Ec2Exception;
 use Aws\Result;
 use CloudDoctor\Cache\Cache;
 use CloudDoctor\CloudDoctor;
 use CloudDoctor\Common\ComputeGroup;
 use CloudDoctor\Common\Request;
+use CloudDoctor\Exceptions\CloudDoctorException;
 use CloudDoctor\Interfaces\ComputeInterface;
 use CloudDoctor\Interfaces\RequestInterface;
 use phpseclib\Net\SFTP;
@@ -25,29 +27,45 @@ class Compute extends \CloudDoctor\Common\Compute
     protected $vpcs = [];
     /** @var string[] */
     protected $subnets = [];
+    /** @var bool */
+    protected $publicIp = true;
+
+    /** @var string */
+    protected $sshKeyId = null;
 
     /** @var \CloudDoctor\Amazon\Request */
     protected $requester;
 
     protected $regionToLocationNames = [
-        'US West (Oregon)' => 'us-west-2',
-        'US West (N. California)' => 'us-west-1',
-        'US East (Ohio)' => 'us-east-2',
-        'US East (N. Virginia)' => 'us-east-1',
-        'Asia Pacific (Mumbai)' => 'ap-south-1',
-        'Asia Pacific (Seoul)' => 'ap-northeast-2',
-        'Asia Pacific (Singapore)' => 'ap-southeast-1',
-        'Asia Pacific (Sydney)' => 'ap-southeast-2',
-        'Asia Pacific (Tokyo)' => 'ap-northeast-1',
-        'Canada (Central)' => 'ca-central-1',
-        'China (Beijing)' => 'cn-north-1',
-        'EU (Frankfurt)' => 'eu-central-1',
-        'EU (Ireland)' => 'eu-west-1',
-        'EU (London)' => 'eu-west-2',
-        'EU (Paris)' => 'eu-west-3',
+        'US West (Oregon)'          => 'us-west-2',
+        'US West (N. California)'   => 'us-west-1',
+        'US East (Ohio)'            => 'us-east-2',
+        'US East (N. Virginia)'     => 'us-east-1',
+        'Asia Pacific (Mumbai)'     => 'ap-south-1',
+        'Asia Pacific (Seoul)'      => 'ap-northeast-2',
+        'Asia Pacific (Singapore)'  => 'ap-southeast-1',
+        'Asia Pacific (Sydney)'     => 'ap-southeast-2',
+        'Asia Pacific (Tokyo)'      => 'ap-northeast-1',
+        'Canada (Central)'          => 'ca-central-1',
+        'China (Beijing)'           => 'cn-north-1',
+        'EU (Frankfurt)'            => 'eu-central-1',
+        'EU (Ireland)'              => 'eu-west-1',
+        'EU (London)'               => 'eu-west-2',
+        'EU (Paris)'                => 'eu-west-3',
         'South America (São Paulo)' => 'sa-east-1',
-        'AWS GovCloud (US)' => 'us-gov-west-1',
+        'AWS GovCloud (US)'         => 'us-gov-west-1',
     ];
+
+    public function setPublicIp(bool $publicIp) : Compute
+    {
+        $this->publicIp = $publicIp;
+        return $this;
+    }
+
+    public function isPublicIp() : bool
+    {
+        return $this->publicIp;
+    }
 
     /**
      * @return string[]
@@ -148,14 +166,16 @@ class Compute extends \CloudDoctor\Common\Compute
         parent::__construct($computeGroup, $config);
         if ($config) {
             $this->setAmis($config['ami']);
-            if($config['vpc']) {
+            if (isset($config['vpc'])) {
                 $this->setVpcs($config['vpc']);
             }
-            if($config['vpc']) {
+            if (isset($config['subnet'])) {
                 $this->setSubnets($config['subnet']);
             }
+            if (isset($config['public_ip'])) {
+                $this->setPublicIp($config['public_ip']);
+            }
         }
-        \Kint::dump($this);
     }
 
     public function setRequester(RequestInterface $requester): ComputeInterface
@@ -169,8 +189,16 @@ class Compute extends \CloudDoctor\Common\Compute
         return $this;
     }
 
+    protected function assertAwsSSHKeys() : void
+    {
+        //@todo: Assert some AWS SSH keys!
+        //$this->requester->getRegionEc2Client()
+    }
+
     public function deploy()
     {
+        $this->assertAwsSSHKeys();
+
         CloudDoctor::Monolog()->addNotice("        ││└ Spinning up on AWS: {$this->getName()}...");
         if (!$this->isValid()) {
             CloudDoctor::Monolog()->addNotice("    Cannot be provisioned because:");
@@ -178,13 +206,45 @@ class Compute extends \CloudDoctor\Common\Compute
                 CloudDoctor::Monolog()->addNotice("     - {$reason}");
             }
         } else {
-            $region = $this->region[array_rand($this->region)];
-            \Kint::dump($this->getEc2InstanceConfig($region));
-            $response = $this->requester->getRegionEc2Client($region)
-                ->runInstances($this->getEc2InstanceConfig($region));
-            \Kint::dump($response);
-            exit;
+            $region = $this->region[$this->getGroupIndex() % count($this->region)];
+            foreach($this->getType() as $type) {
+                try {
+                    $response = $this->requester->getRegionEc2Client($region)
+                        ->runInstances($this->getEc2InstanceConfig($region, $type));
+                    break;
+                }catch(Ec2Exception $exception){
+                    if($exception->getAwsErrorMessage() != 'The requested configuration is currently not supported. Please check the documentation for supported configurations.'){
+                        throw $exception;
+                    }
+                }
+            }
         }
+        $this->waitForState('running');
+    }
+
+    private function waitForState(string $targetState) : void
+    {
+        $tick = 0;
+        while($this->getState() != $targetState){
+            $tick++;
+            echo "\r{$this->spinner($tick)} Waiting for state '{$targetState}'... current: '{$this->getState()}'...";
+            sleep(0.5);
+        }
+        $this->blankLine();
+    }
+
+    public function destroy(): bool
+    {
+        $region = $this->region[$this->getGroupIndex() % count($this->region)];
+        $instance = $this->getCorrespondingAWSInstance();
+        $response = $this->requester->getRegionEc2Client($region)
+            ->terminateInstances([
+                'InstanceIds' => [
+                    $instance['InstanceId']
+                ]
+            ])
+        ;
+        return $response->get('TerminatingInstances')[0]['CurrentState']['Name'] == 'shutting-down';
     }
 
     protected function testValidity(): void
@@ -195,45 +255,50 @@ class Compute extends \CloudDoctor\Common\Compute
 
     public function exists(): bool
     {
-        return $this->getInstanceByName($this->getName()) !== null;
+        return $this->getCorrespondingAWSInstance($this->getName()) !== null
+            && !in_array(
+                $this->getState(), [
+                    'terminated',
+                    'stopped',
+                    'terminating',
+                    'shutting-down'
+                ]
+            );
     }
 
-    protected function getEc2InstanceConfig(string $region) : array
+    protected function getEc2InstanceConfig(string $region, string $type) : array
     {
         $matchingImageIds = $this->getEc2RegionMatchingAMIs($region);
-        $subnetIds = $this->getEc2RegionMatchingSubnets($region);
-        $supportedInstanceTypes = $this->getEc2RegionSupportedInstanceTypes($region);
-        CloudDoctor::Monolog()->addDebug("Found " . count($supportedInstanceTypes) . " supported instance types, looking for " . implode(",", $this->getType()));
-        foreach($this->getType() as $type){
-            \Kint::dump($region, $supportedInstanceTypes, $type);
-            if(in_array($type, $supportedInstanceTypes)){
-                $typeToDeploy = $type;
-                CloudDoctor::Monolog()->addDebug("Can use type: {$type}");
-                break;
-            }else{
-                CloudDoctor::Monolog()->addDebug("Cannot use type: {$type}");
-            }
+        if($this->getSubnets()) {
+            $subnetIds = $this->getEc2RegionMatchingSubnets($region);
         }
+        $supportedInstanceTypes = $this->getEc2RegionSupportedInstanceTypes($region);
 
         return array_filter([
             'ImageId' => $matchingImageIds ? $matchingImageIds[array_rand($matchingImageIds)]['ImageId'] : null,
             'MinCount' => 1,
             'MaxCount' => 1,
-            'InstanceType' => $typeToDeploy,
-            'SubnetId' => $subnetIds ? $subnetIds[array_rand($subnetIds)]['SubnetId'] : null,
+            'InstanceType' => $type,
+            'SubnetId' => $this->getSubnets() && $subnetIds ? $subnetIds[array_rand($subnetIds)]['SubnetId'] : null,
             'TagSpecifications' => [
                 [
                     'ResourceType' => 'instance',
                     'Tags' => $this->getEc2InstanceTags(),
                 ],
-            ]
+            ],
+            'NetworkInterfaces' => [
+                [
+                    'AssociatePublicIpAddress' => $this->isPublicIp(),
+                    'DeviceIndex' => 0,
+                ],
+            ],
         ]);
     }
 
     private function getEc2InstanceTags() : array
     {
         $tags = [];
-        foreach(array_merge($this->getTags(), ['Name' => $this->getName()]) as $key => $value){
+        foreach (array_merge($this->getTags(), ['Name' => $this->getName()]) as $key => $value) {
             $tags[] = [
                 'Key' => $key,
                 'Value' => $value,
@@ -244,8 +309,8 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function region2Location(string $region) : ?string
     {
-        foreach($this->regionToLocationNames as $location => $region){
-            if($region == $region){
+        foreach ($this->regionToLocationNames as $location => $region) {
+            if ($region == $region) {
                 return $location;
             }
         }
@@ -254,11 +319,11 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function getEc2RegionSupportedInstanceTypes(string $region) : array
     {
-        if(!Cache::Read()){
+        if (!Cache::Read()) {
             CloudDoctor::Monolog()->addDebug("Getting list of Supported Instance Types for {$region} region...");
             $availableInstanceTypes = [];
             $nextToken = true;
-            while($nextToken) {
+            while ($nextToken) {
                 /** @var Result $response */
                 $response = $this->requester->getPricingClient()->getProducts([
                     'ServiceCode' => 'AmazonEC2',
@@ -291,7 +356,7 @@ class Compute extends \CloudDoctor\Common\Compute
                 ]);
                 foreach ($response->get('PriceList') as $element) {
                     $element = json_decode($element, true);
-                    if(isset($element['product']['attributes']['instanceType'])) {
+                    if (isset($element['product']['attributes']['instanceType'])) {
                         $availableInstanceTypes[$element['product']['attributes']['instanceType']] = $element['product']['attributes']['instanceType'];
                     }
                 }
@@ -310,14 +375,16 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function getEc2RegionMatchingSubnets(string $region) : array
     {
-        if(!Cache::Read()){
+        if (!Cache::Read()) {
             CloudDoctor::Monolog()->addDebug("Getting list of Subnets for {$region} region...");
             $matchingSubnets = [];
             /** @var Result $response */
             $response = $this->requester->getRegionEc2Client($region)->describeSubnets();
+            \Kint::dump($response);
             CloudDoctor::Monolog()->addDebug("Found " . count($response->get('Images')) . " total Subnets...");
-            foreach($response->get('Subnets') as $subnet){
-                if(in_array($subnet['SubnetId'], $this->getSubnets())){
+            exit;
+            foreach ($response->get('Subnets') as $subnet) {
+                if (in_array($subnet['SubnetId'], $this->getSubnets())) {
                     $matchingSubnets[$subnet['SubnetId']] = $subnet;
                 }
             }
@@ -331,14 +398,14 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function getEc2RegionMatchingAMIs(string $region) : array
     {
-        if(!Cache::Read()){
+        if (!Cache::Read()) {
             CloudDoctor::Monolog()->addDebug("Getting list of Public AMIs for {$region} region...");
             $matchingAmis = [];
             /** @var Result $response */
             $response = $this->requester->getRegionEc2Client($region)->describeImages();
             CloudDoctor::Monolog()->addDebug("Found " . count($response->get('Images')) . " total AMIs...");
-            foreach($response->get('Images') as $ami){
-                if(in_array($ami['ImageId'], $this->getAmis())){
+            foreach ($response->get('Images') as $ami) {
+                if (in_array($ami['ImageId'], $this->getAmis())) {
                     $matchingAmis[$ami['ImageId']] = $ami;
                 }
             }
@@ -349,7 +416,7 @@ class Compute extends \CloudDoctor\Common\Compute
         return Cache::Read();
     }
 
-    protected function getInstanceByName(string $name) : ?array
+    protected function getCorrespondingAWSInstance() : ?array
     {
         $allInstances = $this->requester->acrossRegionAction(
             function (string $region, Ec2Client $ec2Client) {
@@ -365,48 +432,74 @@ class Compute extends \CloudDoctor\Common\Compute
         );
 
         foreach ($allInstances as $instance) {
-            foreach ($instance['Tags'] as $tag) {
-                if ($tag['Key'] == 'Name' && $tag['Value'] == $name) {
-                    return $instance;
-                }
+            if (
+                $this->getTag($instance, 'Name') == $this->getName()
+                && $this->getTag($instance, 'CloudDoctor_ComputeGroupTag') == $this->getComputeGroup()->getComputeGroupTag()
+                && !in_array($instance['State']['Name'], ['terminated', 'terminating', 'shutting-down', 'shutdown'])
+            ){
+                return $instance;
             }
         }
 
         return null;
     }
-
-    public function getPublicIp(): ?string
+    private function getTag(array $instance, string $tagName): ?string
     {
-        $instance = $this->getInstanceByName($this->getName());
-        if($instance){
-            \Kint::dump($instance);
-            die("Go write getPublicIP function");
+        foreach ($instance['Tags'] as $tag) {
+            if ($tag['Key'] == $tagName) {
+                return $tag['Value'];
+            }
+        }
+    }
+
+    public function getIp(): ?string
+    {
+        $instance = $this->getCorrespondingAWSInstance();
+        if ($instance) {
+            if(isset($instance['NetworkInterfaces'][0]['Association']['PublicIp'])){
+                return $instance['NetworkInterfaces'][0]['Association']['PublicIp'];
+            }
+            return $instance['PrivateIpAddress'];
         }
         return null;
     }
 
-    public function destroy(): bool
+    private function getState() : string
     {
-       die("TODO: Implement destroy() method.\n");
+        $instance = $this->getCorrespondingAWSInstance();
+        return $instance['State']['Name'];
     }
 
     public function isTransitioning(): bool
     {
-       die("TODO: Implement isTransitioning() method.\n");
+        $state = $this->getState();
+        switch($state){
+            case 'pending':
+            case 'rebooting':
+            case 'stopping':
+            case 'shutting-down':
+                return true;
+            case 'running':
+            case 'stopped':
+            case 'terminated':
+                return false;
+            default:
+                throw new CloudDoctorException("Unknown state: '{$state}'");
+        }
     }
 
     public function isRunning(): bool
     {
-       die("TODO: Implement isRunning() method.\n");
+        return $this->getState() == 'running';
     }
 
     public function isStopped(): bool
     {
-       die("TODO: Implement isStopped() method.\n");
+        die("TODO: Implement isStopped() method.\n");
     }
 
     public function updateMetaData(): void
     {
-       die("TODO: Implement updateMetaData() method.\n");
+        die("TODO: Implement updateMetaData() method.\n");
     }
 }

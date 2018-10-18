@@ -65,7 +65,7 @@ class Request implements RequestInterface
         return $merge;
     }
 
-    public function randomRegionAction(callable $callable) : AwsResult 
+    public function randomRegionAction(callable $callable) : AwsResult
     {
         $ec2Client = $this->ec2Clients[array_rand($this->ec2Clients)];
         return call_user_func($callable, $region, $ec2Client);
