@@ -191,8 +191,13 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function assertAwsSSHKeys() : void
     {
-        //@todo: Assert some AWS SSH keys!
-        //$this->requester->getRegionEc2Client()
+        $this->requester->acrossRegionAction(function(string $region, Ec2Client $ec2Client){
+            $availableKeyPairs = $ec2Client->describeKeyPairs();
+            foreach($this->getAuthorizedKeys() as $authorizedKey){
+
+            }
+                \Kint::dump($availableKeyPairs, );exit;
+        });
     }
 
     public function deploy()
