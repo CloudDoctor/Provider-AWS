@@ -8,11 +8,9 @@ use Aws\Result;
 use CloudDoctor\Cache\Cache;
 use CloudDoctor\CloudDoctor;
 use CloudDoctor\Common\ComputeGroup;
-use CloudDoctor\Common\Request;
 use CloudDoctor\Exceptions\CloudDoctorException;
 use CloudDoctor\Interfaces\ComputeInterface;
 use CloudDoctor\Interfaces\RequestInterface;
-use phpseclib\Net\SFTP;
 
 class Compute extends \CloudDoctor\Common\Compute
 {
@@ -27,6 +25,8 @@ class Compute extends \CloudDoctor\Common\Compute
     protected $vpcs = [];
     /** @var string[] */
     protected $subnets = [];
+    /** @var array */
+    protected $securityGroups = [];
     /** @var bool */
     protected $publicIp = true;
 
@@ -55,6 +55,37 @@ class Compute extends \CloudDoctor\Common\Compute
         'South America (São Paulo)' => 'sa-east-1',
         'AWS GovCloud (US)'         => 'us-gov-west-1',
     ];
+
+    /**
+     * @return SecurityGroup[]
+     */
+    public function getSecurityGroups(): array
+    {
+        return $this->securityGroups;
+    }
+
+    /**
+     * @param array $securityGroups
+     * @return Compute
+     */
+    public function setSecurityGroups(array $securityGroups): Compute
+    {
+        $this->securityGroups = [];
+        foreach($securityGroups as $securityGroupName => $securityGroup){
+            $this->securityGroups[] = SecurityGroup::Factory()
+                ->setName($securityGroupName)
+                ->parseConfig($securityGroup)
+                ->setApplicableVpcIds($this->getVpcs())
+            ;
+        }
+        return $this;
+    }
+
+    public function addSecurityGroup(SecurityGroup $securityGroup) : Compute
+    {
+        $this->securityGroups[] = $securityGroup;
+        return $this;
+    }
 
     public function setPublicIp(bool $publicIp) : Compute
     {
@@ -175,6 +206,9 @@ class Compute extends \CloudDoctor\Common\Compute
             if (isset($config['public_ip'])) {
                 $this->setPublicIp($config['public_ip']);
             }
+            if (isset($config['security_groups'])) {
+                $this->setSecurityGroups($config['security_groups']);
+            }
         }
     }
 
@@ -189,20 +223,58 @@ class Compute extends \CloudDoctor\Common\Compute
         return $this;
     }
 
-    protected function assertAwsSSHKeys() : void
+    /**
+     * @return string[]
+     */
+    protected function assertAwsSSHKeys() : array
     {
-        $this->requester->acrossRegionAction(function(string $region, Ec2Client $ec2Client){
-            $availableKeyPairs = $ec2Client->describeKeyPairs();
-            foreach($this->getAuthorizedKeys() as $authorizedKey){
-
+        $expectedKeyNames = $this->requester->acrossRegionAction(
+            function(string $region, Ec2Client $ec2Client){
+                $expectedKeyNames = [];
+                $availableKeyPairs = $ec2Client->describeKeyPairs();
+                foreach($this->getAuthorizedKeys() as $authorizedKeyName => $authorizedKey) {
+                    $expectedKeyName = sprintf(
+                        "%s CloudDoctor %s %s (%d)",
+                        $this->getComputeGroup()->getCloudDoctor()->getName(),
+                        $authorizedKeyName,
+                        date("Y-m-d"),
+                        crc32($authorizedKey)
+                    );
+                    $keyName = false;
+                    foreach($availableKeyPairs->get('KeyPairs') as $keypair){
+                        if(strtolower($keypair['KeyName']) == strtolower($expectedKeyName)){
+                            $keyName = $keypair['KeyName'];
+                        }
+                    }
+                    if(!$keyName){
+                        $response = $ec2Client->importKeyPair([
+                            'KeyName' => $expectedKeyName,
+                            'PublicKeyMaterial' => $authorizedKey,
+                        ]);
+                        $expectedKeyNames[] = $response->get('data')['KeyName'];
+                    }else {
+                        $expectedKeyNames[] = $expectedKeyName;
+                    }
+                }
+                return $expectedKeyNames;
             }
-                \Kint::dump($availableKeyPairs, );exit;
-        });
+        );
+        return $expectedKeyNames;
+    }
+
+    protected function assertSecurityGroups() : array
+    {
+        foreach($this->getSecurityGroups() as $securityGroup){
+            $securityGroup->assert($this->requester);
+        }
+        die("Assert Security Groups");
     }
 
     public function deploy()
     {
-        $this->assertAwsSSHKeys();
+        $keyNames = $this->assertAwsSSHKeys();
+
+        $securityGroups = $this->assertSecurityGroups();
 
         CloudDoctor::Monolog()->addNotice("        ││└ Spinning up on AWS: {$this->getName()}...");
         if (!$this->isValid()) {
@@ -214,8 +286,9 @@ class Compute extends \CloudDoctor\Common\Compute
             $region = $this->region[$this->getGroupIndex() % count($this->region)];
             foreach($this->getType() as $type) {
                 try {
+                    $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
                     $response = $this->requester->getRegionEc2Client($region)
-                        ->runInstances($this->getEc2InstanceConfig($region, $type));
+                        ->runInstances($config);
                     break;
                 }catch(Ec2Exception $exception){
                     if($exception->getAwsErrorMessage() != 'The requested configuration is currently not supported. Please check the documentation for supported configurations.'){
@@ -271,7 +344,17 @@ class Compute extends \CloudDoctor\Common\Compute
             );
     }
 
-    protected function getEc2InstanceConfig(string $region, string $type) : array
+    /**
+     * @param string $region
+     * @param string $type
+     * @param string[] $keyNames
+     * @return array
+     */
+    protected function getEc2InstanceConfig(
+        string $region,
+        string $type,
+        array $keyNames
+    ) : array
     {
         $matchingImageIds = $this->getEc2RegionMatchingAMIs($region);
         if($this->getSubnets()) {
@@ -285,6 +368,7 @@ class Compute extends \CloudDoctor\Common\Compute
             'MaxCount' => 1,
             'InstanceType' => $type,
             'SubnetId' => $this->getSubnets() && $subnetIds ? $subnetIds[array_rand($subnetIds)]['SubnetId'] : null,
+            'KeyName' => reset($keyNames),
             'TagSpecifications' => [
                 [
                     'ResourceType' => 'instance',
