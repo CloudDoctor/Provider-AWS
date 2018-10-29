@@ -3,6 +3,7 @@
 namespace CloudDoctor\Amazon;
 
 use Aws\Ec2\Ec2Client;
+use Aws\Ec2\Exception\Ec2Exception;
 
 class SecurityGroup
 {
@@ -85,13 +86,12 @@ class SecurityGroup
                 ]
             ])->get('SecurityGroups')[0];
 
-            $ipPermissions = [];
-
             foreach ($sg->getRulesInbound() as $inboundRule) {
                 $protocols = [];
-
+                $ipPermissions = [];
                 switch($inboundRule->getProtocol()){
-                    case SecurityGroupRule::PROTOCOL_ALL:
+                    case "all":
+                    case "any":
                         $protocols[] = 'tcp';
                         $protocols[] = 'udp';
                         break;
@@ -105,22 +105,25 @@ class SecurityGroup
 
                 foreach($protocols as $protocol) {
                     $ipRanges = [];
-                    $groups = [];
+                    $userIdGroupPair = [];
                     #Kint::dump($inboundRule->getSource(), $group)
                     switch($inboundRule->getSource()){
                         case 'any':
+                        case 'all':
+                        case 'anywhere':
                             $ipRanges[] = [
-                                'Cidr' => '0.0.0.0/0',
+                                'CidrIp' => "0.0.0.0/0",
                             ];
                             break;
                         case 'self':
-                            $groups[] = [
+                            $userIdGroupPair[] = [
                                 'GroupId' => $group['GroupId'],
+                                'Description' => "Self-Reference",
                             ];
                             break;
                         default:
                             $ipRanges[] = [
-                                'Cidr' => $inboundRule->getSource(),
+                                'CidrIp' => $inboundRule->getSource(),
                             ];
                     }
 
@@ -129,7 +132,7 @@ class SecurityGroup
                         'ToPort' => $inboundRule->getPort(),
                         'IpProtocol' => $protocol,
                         'IpRanges' => $ipRanges,
-                        'Groups' => $groups,
+                        'UserIdGroupPairs' => $userIdGroupPair,
                     ]);
                 }
 
@@ -138,15 +141,15 @@ class SecurityGroup
                     //'SourceSecurityGroupId' => $inboundRule->getSource() == 'self' ? $group['GroupId'] : null,
                     'IpPermissions' => $ipPermissions
                 ]);
-                \Kint::dump(
-                    $ingressRequest
-                );
-                $ingressResponse = $ec2Client->authorizeSecurityGroupIngress($ingressRequest);
-                \Kint::dump($ingressResponse);
+                try {
+                    $ingressResponse = $ec2Client->authorizeSecurityGroupIngress($ingressRequest);
+                }catch(Ec2Exception $exception){
+                    if(!stripos($exception->getMessage(), "already exists")){
+                        throw $exception;
+                    }
+                }
             }
-
         });
-        exit;
         return $this;
     }
 
