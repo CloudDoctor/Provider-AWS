@@ -348,7 +348,7 @@ class Compute extends \CloudDoctor\Common\Compute
             ])
         ;
         return $response->get('TerminatingInstances')[0]['CurrentState']['Name'] == 'shutting-down';
-    }fsecuri
+    }
 
     protected function testValidity(): void
     {
@@ -581,13 +581,17 @@ class Compute extends \CloudDoctor\Common\Compute
 
         return null;
     }
+
     private function getTag(array $instance, string $tagName): ?string
     {
-        foreach ($instance['Tags'] as $tag) {
-            if ($tag['Key'] == $tagName) {
-                return $tag['Value'];
+        if(isset($instance['Tags']) && is_array($instance['Tags'])) {
+            foreach ($instance['Tags'] as $tag) {
+                if ($tag['Key'] == $tagName) {
+                    return $tag['Value'];
+                }
             }
         }
+        return null;
     }
 
     public function getIp(): ?string
