@@ -267,7 +267,6 @@ class Compute extends \CloudDoctor\Common\Compute
         foreach($this->getSecurityGroups() as $securityGroup){
             $securityGroup->assert($this->requester);
         }
-        die("Assert Security Groups");
     }
 
     public function deploy()
@@ -287,6 +286,7 @@ class Compute extends \CloudDoctor\Common\Compute
             foreach($this->getType() as $type) {
                 try {
                     $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
+                    \Kint::dump($config);exit;
                     $response = $this->requester->getRegionEc2Client($region)
                         ->runInstances($config);
                     break;
@@ -357,10 +357,14 @@ class Compute extends \CloudDoctor\Common\Compute
     ) : array
     {
         $matchingImageIds = $this->getEc2RegionMatchingAMIs($region);
+
         if($this->getSubnets()) {
             $subnetIds = $this->getEc2RegionMatchingSubnets($region);
         }
+
         $supportedInstanceTypes = $this->getEc2RegionSupportedInstanceTypes($region);
+
+        $securityGroups = $this->getEc2RegionSupportedSecurityGroups($region);
 
         return array_filter([
             'ImageId' => $matchingImageIds ? $matchingImageIds[array_rand($matchingImageIds)]['ImageId'] : null,
@@ -381,7 +385,19 @@ class Compute extends \CloudDoctor\Common\Compute
                     'DeviceIndex' => 0,
                 ],
             ],
+            'SecurityGroups' => $securityGroups,
         ]);
+    }
+
+    /**
+     * @param string $region
+     * @return string[]
+     */
+    private function getRegionSupportedSecurityGroups(string $region) : array
+    {
+        foreach($this->getSecurityGroups() as $securityGroup){
+
+        }
     }
 
     private function getEc2InstanceTags() : array

@@ -15,10 +15,41 @@ class SecurityGroup
     private $rulesInbound = [];
     /** @var SecurityGroupRule[] */
     private $rulesOutbound = [];
+    /** @var string[] */
+    private $awsSecurityGroupIds = [];
 
     public static function Factory() : SecurityGroup
     {
         return new SecurityGroup();
+    }
+
+    /**
+     * @return string[]
+     */
+    public function getAwsSecurityGroupIds(): array
+    {
+        return $this->awsSecurityGroupIds;
+    }
+
+    /**
+     * @param string[] $awsSecurityGroupIds
+     * @return SecurityGroup
+     */
+    public function setAwsSecurityGroupIds(array $awsSecurityGroupIds): SecurityGroup
+    {
+        $this->awsSecurityGroupIds = $awsSecurityGroupIds;
+        return $this;
+    }
+
+    public function addAwsSecurityGroupIdByRegion(string $region, string $value): SecurityGroup
+    {
+        $this->awsSecurityGroupIds[$region] = $value;
+        return $this;
+    }
+
+    public function getAwsSecurityGroupIdByregion(string $region) : ?string
+    {
+        return $this->awsSecurityGroupIds[$region] ?: null;
     }
 
     /**
@@ -76,6 +107,8 @@ class SecurityGroup
                 ]);
                 $groupId = $makeGroupResponse->get('GroupId');
             }
+
+            $sg->addAwsSecurityGroupId($region, $groupId);
 
             $group = $ec2Client->describeSecurityGroups([
                 'Filters' => [
