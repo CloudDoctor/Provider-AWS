@@ -108,7 +108,7 @@ class SecurityGroup
                 $groupId = $makeGroupResponse->get('GroupId');
             }
 
-            $sg->addAwsSecurityGroupId($region, $groupId);
+            $sg->addAwsSecurityGroupIdByRegion($region, $groupId);
 
             $group = $ec2Client->describeSecurityGroups([
                 'Filters' => [

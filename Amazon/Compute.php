@@ -21,6 +21,8 @@ class Compute extends \CloudDoctor\Common\Compute
     protected $region = [];
     /** @var string[] */
     protected $type = [];
+    /** @var int */
+    protected $volumeSizeGB = 32;
     /** @var string[] */
     protected $vpcs = [];
     /** @var string[] */
@@ -55,6 +57,24 @@ class Compute extends \CloudDoctor\Common\Compute
         'South America (São Paulo)' => 'sa-east-1',
         'AWS GovCloud (US)'         => 'us-gov-west-1',
     ];
+
+    /**
+     * @return int
+     */
+    public function getVolumeSizeGB(): int
+    {
+        return $this->volumeSizeGB;
+    }
+
+    /**
+     * @param int $volumeSizeGB
+     * @return Compute
+     */
+    public function setVolumeSizeGB(int $volumeSizeGB): Compute
+    {
+        $this->volumeSizeGB = $volumeSizeGB;
+        return $this;
+    }
 
     /**
      * @return SecurityGroup[]
@@ -197,6 +217,9 @@ class Compute extends \CloudDoctor\Common\Compute
         parent::__construct($computeGroup, $config);
         if ($config) {
             $this->setAmis($config['ami']);
+            if (isset($config['volume_size_gb'])) {
+                $this->setVolumeSizeGB($config['volume_size_gb']);
+            }
             if (isset($config['vpc'])) {
                 $this->setVpcs($config['vpc']);
             }
@@ -264,9 +287,11 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function assertSecurityGroups() : array
     {
+        $securityGroups = [];
         foreach($this->getSecurityGroups() as $securityGroup){
-            $securityGroup->assert($this->requester);
+            $securityGroups[] = $securityGroup->assert($this->requester);
         }
+        return $securityGroups;
     }
 
     public function deploy()
@@ -286,7 +311,7 @@ class Compute extends \CloudDoctor\Common\Compute
             foreach($this->getType() as $type) {
                 try {
                     $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
-                    \Kint::dump($config);exit;
+                    #\Kint::dump($config);//exit;
                     $response = $this->requester->getRegionEc2Client($region)
                         ->runInstances($config);
                     break;
@@ -323,7 +348,7 @@ class Compute extends \CloudDoctor\Common\Compute
             ])
         ;
         return $response->get('TerminatingInstances')[0]['CurrentState']['Name'] == 'shutting-down';
-    }
+    }fsecuri
 
     protected function testValidity(): void
     {
@@ -371,21 +396,29 @@ class Compute extends \CloudDoctor\Common\Compute
             'MinCount' => 1,
             'MaxCount' => 1,
             'InstanceType' => $type,
-            'SubnetId' => $this->getSubnets() && $subnetIds ? $subnetIds[array_rand($subnetIds)]['SubnetId'] : null,
+            //'SubnetId' => $this->getSubnets() && $subnetIds ? $subnetIds[array_rand($subnetIds)]['SubnetId'] : null,
             'KeyName' => reset($keyNames),
+            'BlockDeviceMappings' => [
+                [
+                    'DeviceName' => '/dev/sdh',
+                    'Ebs' => [
+                        'VolumeSize' => $this->getVolumeSizeGB(),
+                    ],
+                ],
+            ],
             'TagSpecifications' => [
                 [
                     'ResourceType' => 'instance',
                     'Tags' => $this->getEc2InstanceTags(),
                 ],
             ],
-            'NetworkInterfaces' => [
-                [
-                    'AssociatePublicIpAddress' => $this->isPublicIp(),
-                    'DeviceIndex' => 0,
-                ],
-            ],
-            'SecurityGroups' => $securityGroups,
+            #'NetworkInterfaces' => [
+            #    [
+            #        'AssociatePublicIpAddress' => $this->isPublicIp(),
+            #        'DeviceIndex' => 0,
+            #    ],
+            #],
+            'SecurityGroupIds' => $securityGroups,
         ]);
     }
 
@@ -393,11 +426,13 @@ class Compute extends \CloudDoctor\Common\Compute
      * @param string $region
      * @return string[]
      */
-    private function getRegionSupportedSecurityGroups(string $region) : array
+    private function getEc2RegionSupportedSecurityGroups(string $region) : array
     {
+        $supportedSecurityGroups = [];
         foreach($this->getSecurityGroups() as $securityGroup){
-
+            $supportedSecurityGroups[] = $securityGroup->getAwsSecurityGroupIdByregion($region);
         }
+        return $supportedSecurityGroups;
     }
 
     private function getEc2InstanceTags() : array
@@ -485,9 +520,7 @@ class Compute extends \CloudDoctor\Common\Compute
             $matchingSubnets = [];
             /** @var Result $response */
             $response = $this->requester->getRegionEc2Client($region)->describeSubnets();
-            \Kint::dump($response);
-            CloudDoctor::Monolog()->addDebug("Found " . count($response->get('Images')) . " total Subnets...");
-            exit;
+            CloudDoctor::Monolog()->addDebug("Found " . count($response->get('Subnets')) . " total Subnets...");
             foreach ($response->get('Subnets') as $subnet) {
                 if (in_array($subnet['SubnetId'], $this->getSubnets())) {
                     $matchingSubnets[$subnet['SubnetId']] = $subnet;
@@ -600,11 +633,20 @@ class Compute extends \CloudDoctor\Common\Compute
 
     public function isStopped(): bool
     {
-        die("TODO: Implement isStopped() method.\n");
+        $state = $this->getState();
+        switch($state){
+            case 'stopping':
+            case 'shutting-down':
+            case 'stopped':
+            case 'terminated':
+                return true;
+            default:
+                return false;
+        }
     }
 
     public function updateMetaData(): void
     {
-        die("TODO: Implement updateMetaData() method.\n");
+        // Void stub.
     }
 }

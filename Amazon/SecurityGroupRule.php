@@ -17,6 +17,8 @@ class SecurityGroupRule
     private $protocol;
     /** @var string */
     private $source;
+    /** @var string */
+    private $description;
 
     public static function Factory(array $config) : SecurityGroupRule
     {
@@ -36,9 +38,32 @@ class SecurityGroupRule
         if(isset($config['source'])) {
             $sgr->setSource($config['source']);
         }
+        if(isset($config['description'])){
+            $sgr->setDescription($config['description']);
+        }
 
         return $sgr;
     }
+
+    /**
+     * @return string
+     */
+    public function getDescription(): string
+    {
+        return $this->description;
+    }
+
+    /**
+     * @param string $description
+     * @return SecurityGroupRule
+     */
+    public function setDescription(string $description): SecurityGroupRule
+    {
+        $this->description = $description;
+        return $this;
+    }
+
+
 
     /**
      * @return int
