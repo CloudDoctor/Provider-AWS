@@ -251,8 +251,12 @@ class Compute extends \CloudDoctor\Common\Compute
      */
     protected function assertAwsSSHKeys() : array
     {
+        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS SSH Keys");
+
         $expectedKeyNames = $this->requester->acrossRegionAction(
             function(string $region, Ec2Client $ec2Client){
+                CloudDoctor::Monolog()->addNotice("        │││├┬ Region: {$region}");
+
                 $expectedKeyNames = [];
                 $availableKeyPairs = $ec2Client->describeKeyPairs();
                 foreach($this->getAuthorizedKeys() as $authorizedKeyName => $authorizedKey) {
@@ -270,12 +274,15 @@ class Compute extends \CloudDoctor\Common\Compute
                         }
                     }
                     if(!$keyName){
+                        CloudDoctor::Monolog()->addNotice("        ││││└─ Importing NEW Keypair as \"{$expectedKeyName}\"");
+
                         $response = $ec2Client->importKeyPair([
                             'KeyName' => $expectedKeyName,
                             'PublicKeyMaterial' => $authorizedKey,
                         ]);
                         $expectedKeyNames[] = $response->get('data')['KeyName'];
                     }else {
+                        CloudDoctor::Monolog()->addNotice("        ││││└─ Found EXISTING Keypair as \"{$expectedKeyName}\"");
                         $expectedKeyNames[] = $expectedKeyName;
                     }
                 }
@@ -287,9 +294,12 @@ class Compute extends \CloudDoctor\Common\Compute
 
     protected function assertSecurityGroups() : array
     {
+        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS Security Groups");
+
         $securityGroups = [];
-        foreach($this->getSecurityGroups() as $securityGroup){
+        foreach($this->getSecurityGroups() as $i => $securityGroup){
             $securityGroups[] = $securityGroup->assert($this->requester);
+            CloudDoctor::Monolog()->addNotice("        │││" . ($i + 1 == count($this->getSecurityGroups()) ? "└" : "├") . "─ SG: {$securityGroup->getName()}");
         }
         return $securityGroups;
     }
