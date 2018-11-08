@@ -261,10 +261,9 @@ class Compute extends \CloudDoctor\Common\Compute
                 $availableKeyPairs = $ec2Client->describeKeyPairs();
                 foreach($this->getAuthorizedKeys() as $authorizedKeyName => $authorizedKey) {
                     $expectedKeyName = sprintf(
-                        "%s CloudDoctor %s %s (%d)",
+                        "%s CloudDoctor %s (%d)",
                         $this->getComputeGroup()->getCloudDoctor()->getName(),
                         $authorizedKeyName,
-                        date("Y-m-d"),
                         crc32($authorizedKey)
                     );
                     $keyName = false;
@@ -321,7 +320,7 @@ class Compute extends \CloudDoctor\Common\Compute
             foreach($this->getType() as $type) {
                 try {
                     $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
-                    #\Kint::dump($config);//exit;
+                    \Kint::dump($config);//exit;
                     $response = $this->requester->getRegionEc2Client($region)
                         ->runInstances($config);
                     break;
