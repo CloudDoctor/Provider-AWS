@@ -2,14 +2,11 @@
 
 namespace CloudDoctor\Amazon;
 
-use Aws\Route53\Exception\Route53Exception;
 use Aws\Route53\Route53Client;
 use CloudDoctor\CloudDoctor;
 use CloudDoctor\Interfaces\DNSControllerInterface;
-use Monolog\Logger;
 
-class DNSController
-    implements DNSControllerInterface
+class DNSController implements DNSControllerInterface
 {
     private $ttl = 300;
     /** @var array */
@@ -28,25 +25,6 @@ class DNSController
                 'secret' => $this->config['api-secret'],
             ],
         ]);
-    }
-
-    private function getHostedZone(string $domain) : ?array
-    {
-        $domain = explode(".", $domain);
-        $allZones = $this->route53Client->listHostedZones()->get("HostedZones");
-        foreach($allZones as $zone){
-            foreach($domain as $i => $domainElement){
-                $domainFragment = implode(".",array_slice($domain, $i)) . ".";
-                if($domainFragment == $zone['Name']){
-                    return $zone;
-                }
-            }
-        }
-        return null;
-    }
-    private function array_sort($array){
-        sort($array);
-        return $array;
     }
 
     public function verifyRecordCorrect(string $domain, array $values): bool
@@ -72,12 +50,12 @@ class DNSController
             'RecordType' => strtoupper($type),
         ]);
 
-        if(empty($testDns->get('RecordData'))){
+        if (empty($testDns->get('RecordData'))) {
             return 0;
         }
 
         $resourceRecords = [];
-        foreach($testDns->get('RecordData') as $value){
+        foreach ($testDns->get('RecordData') as $value) {
             $resourceRecords[] = [
                 'Value' => $value,
             ];
@@ -85,19 +63,19 @@ class DNSController
 
         $deleteRecordRequest = [
             'HostedZoneId' => $hostedZone['Id'],
-            'ChangeBatch' => array(
-                'Changes' => array(
-                    array(
+            'ChangeBatch' => [
+                'Changes' => [
+                    [
                         'Action' => 'DELETE',
-                        'ResourceRecordSet' => array(
+                        'ResourceRecordSet' => [
                             'Name' => $domain,
                             'Type' => strtoupper($type),
                             'TTL' => $this->ttl,
                             'ResourceRecords' => $resourceRecords,
-                        ),
-                    ),
-                ),
-            ),
+                        ],
+                    ],
+                ],
+            ],
         ];
         $createRecordResponse = $this->route53Client->changeResourceRecordSets($deleteRecordRequest);
 
@@ -106,7 +84,7 @@ class DNSController
 
     public function createRecord(string $type, string $domain, string $value): bool
     {
-       return $this->createRecords($type, $domain, [$value]);
+        return $this->createRecords($type, $domain, [$value]);
     }
 
     public function createRecords(string $type, string $domain, array $values): bool
@@ -114,7 +92,7 @@ class DNSController
         $hostedZone = $this->getHostedZone($domain);
 
         $resourceRecords = [];
-        foreach($values as $value){
+        foreach ($values as $value) {
             $resourceRecords[] = [
                 'Value' => $value,
             ];
@@ -122,23 +100,43 @@ class DNSController
 
         $createRecordRequest = [
             'HostedZoneId' => $hostedZone['Id'],
-            'ChangeBatch' => array(
-                'Changes' => array(
-                    array(
+            'ChangeBatch' => [
+                'Changes' => [
+                    [
                         'Action' => 'UPSERT',
-                        'ResourceRecordSet' => array(
+                        'ResourceRecordSet' => [
                             'Name' => $domain,
                             'Type' => strtoupper($type),
                             'TTL' => $this->ttl,
                             'ResourceRecords' => $resourceRecords,
-                        ),
-                    ),
-                ),
-            ),
+                        ],
+                    ],
+                ],
+            ],
         ];
         $createRecordResponse = $this->route53Client->changeResourceRecordSets($createRecordRequest);
 
         return $createRecordResponse->get('ChangeInfo')['Status'] == 'Pending';
     }
 
+    private function getHostedZone(string $domain) : ?array
+    {
+        $domain = explode(".", $domain);
+        $allZones = $this->route53Client->listHostedZones()->get("HostedZones");
+        foreach ($allZones as $zone) {
+            foreach ($domain as $i => $domainElement) {
+                $domainFragment = implode(".", array_slice($domain, $i)) . ".";
+                if ($domainFragment == $zone['Name']) {
+                    return $zone;
+                }
+            }
+        }
+        return null;
+    }
+
+    private function array_sort($array) : array
+    {
+        sort($array);
+        return $array;
+    }
 }

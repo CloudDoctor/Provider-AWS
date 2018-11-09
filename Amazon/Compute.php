@@ -58,6 +58,29 @@ class Compute extends \CloudDoctor\Common\Compute
         'AWS GovCloud (US)'         => 'us-gov-west-1',
     ];
 
+    public function __construct(ComputeGroup $computeGroup, $config = null)
+    {
+        parent::__construct($computeGroup, $config);
+        if ($config) {
+            $this->setAmis($config['ami']);
+            if (isset($config['volume_size_gb'])) {
+                $this->setVolumeSizeGB($config['volume_size_gb']);
+            }
+            if (isset($config['vpc'])) {
+                $this->setVpcs($config['vpc']);
+            }
+            if (isset($config['subnet'])) {
+                $this->setSubnets($config['subnet']);
+            }
+            if (isset($config['public_ip'])) {
+                $this->setPublicIp($config['public_ip']);
+            }
+            if (isset($config['security_groups'])) {
+                $this->setSecurityGroups($config['security_groups']);
+            }
+        }
+    }
+
     /**
      * @return int
      */
@@ -68,6 +91,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param int $volumeSizeGB
+     *
      * @return Compute
      */
     public function setVolumeSizeGB(int $volumeSizeGB): Compute
@@ -86,12 +110,13 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param array $securityGroups
+     *
      * @return Compute
      */
     public function setSecurityGroups(array $securityGroups): Compute
     {
         $this->securityGroups = [];
-        foreach($securityGroups as $securityGroupName => $securityGroup){
+        foreach ($securityGroups as $securityGroupName => $securityGroup) {
             $this->securityGroups[] = SecurityGroup::Factory()
                 ->setName($securityGroupName)
                 ->parseConfig($securityGroup)
@@ -128,6 +153,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string[] $amis
+     *
      * @return Compute
      */
     public function setAmis(array $amis): Compute
@@ -138,6 +164,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string $ami
+     *
      * @return Compute
      */
     public function addAmi(array $ami): Compute
@@ -156,6 +183,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string[] $vpcs
+     *
      * @return Compute
      */
     public function setVpcs(array $vpcs): ComputeInterface
@@ -166,6 +194,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string $vpc
+     *
      * @return Compute
      */
     public function addVpc(string $vpc): ComputeInterface
@@ -176,6 +205,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string $regions
+     *
      * @return Compute
      */
     public function addRegion(string $region) : ComputeInterface
@@ -194,6 +224,7 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string[] $subnets
+     *
      * @return Compute
      */
     public function setSubnets(array $subnets): ComputeInterface
@@ -204,35 +235,13 @@ class Compute extends \CloudDoctor\Common\Compute
 
     /**
      * @param string $subnet
+     *
      * @return Compute
      */
     public function addSubnet(string $subnet): ComputeInterface
     {
         $this->subnets[] = $subnet;
         return $this;
-    }
-
-    public function __construct(ComputeGroup $computeGroup, $config = null)
-    {
-        parent::__construct($computeGroup, $config);
-        if ($config) {
-            $this->setAmis($config['ami']);
-            if (isset($config['volume_size_gb'])) {
-                $this->setVolumeSizeGB($config['volume_size_gb']);
-            }
-            if (isset($config['vpc'])) {
-                $this->setVpcs($config['vpc']);
-            }
-            if (isset($config['subnet'])) {
-                $this->setSubnets($config['subnet']);
-            }
-            if (isset($config['public_ip'])) {
-                $this->setPublicIp($config['public_ip']);
-            }
-            if (isset($config['security_groups'])) {
-                $this->setSecurityGroups($config['security_groups']);
-            }
-        }
     }
 
     public function setRequester(RequestInterface $requester): ComputeInterface
@@ -244,63 +253,6 @@ class Compute extends \CloudDoctor\Common\Compute
         }
 
         return $this;
-    }
-
-    /**
-     * @return string[]
-     */
-    protected function assertAwsSSHKeys() : array
-    {
-        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS SSH Keys");
-
-        $expectedKeyNames = $this->requester->acrossRegionAction(
-            function(string $region, Ec2Client $ec2Client){
-                CloudDoctor::Monolog()->addNotice("        │││├┬ Region: {$region}");
-
-                $expectedKeyNames = [];
-                $availableKeyPairs = $ec2Client->describeKeyPairs();
-                foreach($this->getAuthorizedKeys() as $authorizedKeyName => $authorizedKey) {
-                    $expectedKeyName = sprintf(
-                        "%s CloudDoctor %s (%d)",
-                        $this->getComputeGroup()->getCloudDoctor()->getName(),
-                        $authorizedKeyName,
-                        crc32($authorizedKey)
-                    );
-                    $keyName = false;
-                    foreach($availableKeyPairs->get('KeyPairs') as $keypair){
-                        if(strtolower($keypair['KeyName']) == strtolower($expectedKeyName)){
-                            $keyName = $keypair['KeyName'];
-                        }
-                    }
-                    if(!$keyName){
-                        CloudDoctor::Monolog()->addNotice("        ││││└─ Importing NEW Keypair as \"{$expectedKeyName}\"");
-
-                        $response = $ec2Client->importKeyPair([
-                            'KeyName' => $expectedKeyName,
-                            'PublicKeyMaterial' => $authorizedKey,
-                        ]);
-                        $expectedKeyNames[] = $response->get('data')['KeyName'];
-                    }else {
-                        CloudDoctor::Monolog()->addNotice("        ││││└─ Found EXISTING Keypair as \"{$expectedKeyName}\"");
-                        $expectedKeyNames[] = $expectedKeyName;
-                    }
-                }
-                return $expectedKeyNames;
-            }
-        );
-        return $expectedKeyNames;
-    }
-
-    protected function assertSecurityGroups() : array
-    {
-        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS Security Groups");
-
-        $securityGroups = [];
-        foreach($this->getSecurityGroups() as $i => $securityGroup){
-            $securityGroups[] = $securityGroup->assert($this->requester);
-            CloudDoctor::Monolog()->addNotice("        │││" . ($i + 1 == count($this->getSecurityGroups()) ? "└" : "├") . "─ SG: {$securityGroup->getName()}");
-        }
-        return $securityGroups;
     }
 
     public function deploy()
@@ -317,32 +269,21 @@ class Compute extends \CloudDoctor\Common\Compute
             }
         } else {
             $region = $this->region[$this->getGroupIndex() % count($this->region)];
-            foreach($this->getType() as $type) {
+            foreach ($this->getType() as $type) {
                 try {
                     $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
                     \Kint::dump($config);//exit;
                     $response = $this->requester->getRegionEc2Client($region)
                         ->runInstances($config);
                     break;
-                }catch(Ec2Exception $exception){
-                    if($exception->getAwsErrorMessage() != 'The requested configuration is currently not supported. Please check the documentation for supported configurations.'){
+                } catch (Ec2Exception $exception) {
+                    if ($exception->getAwsErrorMessage() != 'The requested configuration is currently not supported. Please check the documentation for supported configurations.') {
                         throw $exception;
                     }
                 }
             }
         }
         $this->waitForState('running');
-    }
-
-    private function waitForState(string $targetState) : void
-    {
-        $tick = 0;
-        while($this->getState() != $targetState){
-            $tick++;
-            echo "\r{$this->spinner($tick)} Waiting for state '{$targetState}'... current: '{$this->getState()}'...";
-            sleep(0.5);
-        }
-        $this->blankLine();
     }
 
     public function destroy(): bool
@@ -359,12 +300,6 @@ class Compute extends \CloudDoctor\Common\Compute
         return $response->get('TerminatingInstances')[0]['CurrentState']['Name'] == 'shutting-down';
     }
 
-    protected function testValidity(): void
-    {
-        parent::testValidity();
-        // TODO: Write more AWS-specific validation.
-    }
-
     public function exists(): bool
     {
         return $this->getCorrespondingAWSInstance($this->getName()) !== null
@@ -378,21 +313,138 @@ class Compute extends \CloudDoctor\Common\Compute
             );
     }
 
+    public function getIp(): ?string
+    {
+        $instance = $this->getCorrespondingAWSInstance();
+        if ($instance) {
+            if (isset($instance['NetworkInterfaces'][0]['Association']['PublicIp'])) {
+                return $instance['NetworkInterfaces'][0]['Association']['PublicIp'];
+            }
+            return $instance['PrivateIpAddress'];
+        }
+        return null;
+    }
+
+    public function isTransitioning(): bool
+    {
+        $state = $this->getState();
+        switch ($state) {
+            case 'pending':
+            case 'rebooting':
+            case 'stopping':
+            case 'shutting-down':
+                return true;
+            case 'running':
+            case 'stopped':
+            case 'terminated':
+                return false;
+            default:
+                throw new CloudDoctorException("Unknown state: '{$state}'");
+        }
+    }
+
+    public function isRunning(): bool
+    {
+        return $this->getState() == 'running';
+    }
+
+    public function isStopped(): bool
+    {
+        $state = $this->getState();
+        switch ($state) {
+            case 'stopping':
+            case 'shutting-down':
+            case 'stopped':
+            case 'terminated':
+                return true;
+            default:
+                return false;
+        }
+    }
+
+    public function updateMetaData(): void
+    {
+        // Void stub.
+    }
+
+    /**
+     * @return string[]
+     */
+    protected function assertAwsSSHKeys() : array
+    {
+        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS SSH Keys");
+
+        $expectedKeyNames = $this->requester->acrossRegionAction(
+            function (string $region, Ec2Client $ec2Client) {
+                CloudDoctor::Monolog()->addNotice("        │││├┬ Region: {$region}");
+
+                $expectedKeyNames = [];
+                $availableKeyPairs = $ec2Client->describeKeyPairs();
+                foreach ($this->getAuthorizedKeys() as $authorizedKeyName => $authorizedKey) {
+                    $expectedKeyName = sprintf(
+                        "%s CloudDoctor %s (%d)",
+                        $this->getComputeGroup()->getCloudDoctor()->getName(),
+                        $authorizedKeyName,
+                        crc32($authorizedKey)
+                    );
+                    $keyName = false;
+                    foreach ($availableKeyPairs->get('KeyPairs') as $keypair) {
+                        if (strtolower($keypair['KeyName']) == strtolower($expectedKeyName)) {
+                            $keyName = $keypair['KeyName'];
+                        }
+                    }
+                    if (!$keyName) {
+                        CloudDoctor::Monolog()->addNotice("        ││││└─ Importing NEW Keypair as \"{$expectedKeyName}\"");
+
+                        $response = $ec2Client->importKeyPair([
+                            'KeyName' => $expectedKeyName,
+                            'PublicKeyMaterial' => $authorizedKey,
+                        ]);
+                        $expectedKeyNames[] = $response->get('data')['KeyName'];
+                    } else {
+                        CloudDoctor::Monolog()->addNotice("        ││││└─ Found EXISTING Keypair as \"{$expectedKeyName}\"");
+                        $expectedKeyNames[] = $expectedKeyName;
+                    }
+                }
+                return $expectedKeyNames;
+            }
+        );
+        return $expectedKeyNames;
+    }
+
+    protected function assertSecurityGroups() : array
+    {
+        CloudDoctor::Monolog()->addNotice("        ││├┬ Asserting AWS Security Groups");
+
+        $securityGroups = [];
+        foreach ($this->getSecurityGroups() as $i => $securityGroup) {
+            $securityGroups[] = $securityGroup->assert($this->requester);
+            CloudDoctor::Monolog()->addNotice("        │││" . ($i + 1 == count($this->getSecurityGroups()) ? "└" : "├") . "─ SG: {$securityGroup->getName()}");
+        }
+        return $securityGroups;
+    }
+
+    protected function testValidity(): void
+    {
+        parent::testValidity();
+        // TODO: Write more AWS-specific validation.
+    }
+
     /**
      * @param string $region
      * @param string $type
      * @param string[] $keyNames
+     *
      * @return array
      */
     protected function getEc2InstanceConfig(
         string $region,
         string $type,
         array $keyNames
-    ) : array
-    {
+    ) : array {
         $matchingImageIds = $this->getEc2RegionMatchingAMIs($region);
 
-        if($this->getSubnets()) {
+        if ($this->getSubnets()) {
             $subnetIds = $this->getEc2RegionMatchingSubnets($region);
         }
 
@@ -429,31 +481,6 @@ class Compute extends \CloudDoctor\Common\Compute
             #],
             'SecurityGroupIds' => $securityGroups,
         ]);
-    }
-
-    /**
-     * @param string $region
-     * @return string[]
-     */
-    private function getEc2RegionSupportedSecurityGroups(string $region) : array
-    {
-        $supportedSecurityGroups = [];
-        foreach($this->getSecurityGroups() as $securityGroup){
-            $supportedSecurityGroups[] = $securityGroup->getAwsSecurityGroupIdByregion($region);
-        }
-        return $supportedSecurityGroups;
-    }
-
-    private function getEc2InstanceTags() : array
-    {
-        $tags = [];
-        foreach (array_merge($this->getTags(), ['Name' => $this->getName()]) as $key => $value) {
-            $tags[] = [
-                'Key' => $key,
-                'Value' => $value,
-            ];
-        }
-        return $tags;
     }
 
     protected function region2Location(string $region) : ?string
@@ -583,7 +610,7 @@ class Compute extends \CloudDoctor\Common\Compute
                 $this->getTag($instance, 'Name') == $this->getName()
                 && $this->getTag($instance, 'CloudDoctor_ComputeGroupTag') == $this->getComputeGroup()->getComputeGroupTag()
                 && !in_array($instance['State']['Name'], ['terminated', 'terminating', 'shutting-down', 'shutdown'])
-            ){
+            ) {
                 return $instance;
             }
         }
@@ -591,9 +618,46 @@ class Compute extends \CloudDoctor\Common\Compute
         return null;
     }
 
+    private function waitForState(string $targetState) : void
+    {
+        $tick = 0;
+        while ($this->getState() != $targetState) {
+            $tick++;
+            echo "\r{$this->spinner($tick)} Waiting for state '{$targetState}'... current: '{$this->getState()}'...";
+            sleep(0.5);
+        }
+        $this->blankLine();
+    }
+
+    /**
+     * @param string $region
+     *
+     * @return string[]
+     */
+    private function getEc2RegionSupportedSecurityGroups(string $region) : array
+    {
+        $supportedSecurityGroups = [];
+        foreach ($this->getSecurityGroups() as $securityGroup) {
+            $supportedSecurityGroups[] = $securityGroup->getAwsSecurityGroupIdByregion($region);
+        }
+        return $supportedSecurityGroups;
+    }
+
+    private function getEc2InstanceTags() : array
+    {
+        $tags = [];
+        foreach (array_merge($this->getTags(), ['Name' => $this->getName()]) as $key => $value) {
+            $tags[] = [
+                'Key' => $key,
+                'Value' => $value,
+            ];
+        }
+        return $tags;
+    }
+
     private function getTag(array $instance, string $tagName): ?string
     {
-        if(isset($instance['Tags']) && is_array($instance['Tags'])) {
+        if (isset($instance['Tags']) && is_array($instance['Tags'])) {
             foreach ($instance['Tags'] as $tag) {
                 if ($tag['Key'] == $tagName) {
                     return $tag['Value'];
@@ -603,63 +667,9 @@ class Compute extends \CloudDoctor\Common\Compute
         return null;
     }
 
-    public function getIp(): ?string
-    {
-        $instance = $this->getCorrespondingAWSInstance();
-        if ($instance) {
-            if(isset($instance['NetworkInterfaces'][0]['Association']['PublicIp'])){
-                return $instance['NetworkInterfaces'][0]['Association']['PublicIp'];
-            }
-            return $instance['PrivateIpAddress'];
-        }
-        return null;
-    }
-
     private function getState() : string
     {
         $instance = $this->getCorrespondingAWSInstance();
         return $instance['State']['Name'];
-    }
-
-    public function isTransitioning(): bool
-    {
-        $state = $this->getState();
-        switch($state){
-            case 'pending':
-            case 'rebooting':
-            case 'stopping':
-            case 'shutting-down':
-                return true;
-            case 'running':
-            case 'stopped':
-            case 'terminated':
-                return false;
-            default:
-                throw new CloudDoctorException("Unknown state: '{$state}'");
-        }
-    }
-
-    public function isRunning(): bool
-    {
-        return $this->getState() == 'running';
-    }
-
-    public function isStopped(): bool
-    {
-        $state = $this->getState();
-        switch($state){
-            case 'stopping':
-            case 'shutting-down':
-            case 'stopped':
-            case 'terminated':
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    public function updateMetaData(): void
-    {
-        // Void stub.
     }
 }

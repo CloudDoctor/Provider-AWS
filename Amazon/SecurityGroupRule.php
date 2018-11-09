@@ -23,22 +23,22 @@ class SecurityGroupRule
     public static function Factory(array $config) : SecurityGroupRule
     {
         $sgr = new SecurityGroupRule();
-        if(isset($config['port'])) {
-            if($config['port'] == 'any') {
+        if (isset($config['port'])) {
+            if ($config['port'] == 'any') {
                 $sgr->setPort(self::SOURCE_ANY);
-            }else if($config['port'] == 'self'){
+            } elseif ($config['port'] == 'self') {
                 $sgr->setPort(self::SOURCE_SELF);
-            }else {
+            } else {
                 $sgr->setPort($config['port']);
             }
         }
-        if(isset($config['protocol'])) {
+        if (isset($config['protocol'])) {
             $sgr->setProtocol($config['protocol']);
         }
-        if(isset($config['source'])) {
+        if (isset($config['source'])) {
             $sgr->setSource($config['source']);
         }
-        if(isset($config['description'])){
+        if (isset($config['description'])) {
             $sgr->setDescription($config['description']);
         }
 
@@ -55,6 +55,7 @@ class SecurityGroupRule
 
     /**
      * @param string $description
+     *
      * @return SecurityGroupRule
      */
     public function setDescription(string $description): SecurityGroupRule
@@ -75,6 +76,7 @@ class SecurityGroupRule
 
     /**
      * @param int $port
+     *
      * @return SecurityGroupRule
      */
     public function setPort(int $port): SecurityGroupRule
@@ -93,6 +95,7 @@ class SecurityGroupRule
 
     /**
      * @param string $protocol
+     *
      * @return SecurityGroupRule
      */
     public function setProtocol(string $protocol): SecurityGroupRule
@@ -111,6 +114,7 @@ class SecurityGroupRule
 
     /**
      * @param string $source
+     *
      * @return SecurityGroupRule
      */
     public function setSource(string $source): SecurityGroupRule

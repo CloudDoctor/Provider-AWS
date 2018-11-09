@@ -33,6 +33,7 @@ class SecurityGroup
 
     /**
      * @param string[] $awsSecurityGroupIds
+     *
      * @return SecurityGroup
      */
     public function setAwsSecurityGroupIds(array $awsSecurityGroupIds): SecurityGroup
@@ -62,6 +63,7 @@ class SecurityGroup
 
     /**
      * @param string[] $applicableVpcIds
+     *
      * @return SecurityGroup
      */
     public function setApplicableVpcIds(array $applicableVpcIds): SecurityGroup
@@ -70,33 +72,21 @@ class SecurityGroup
         return $this;
     }
 
-    private function getApplicableVpc(Ec2Client $ec2Client) : ?string
-    {
-        $potentialVPCs = $this->getApplicableVpcIds();
-        $availableVPCs = $ec2Client->describeVpcs()->get('Vpcs');
-        foreach($availableVPCs as $availableVPC){
-            if(in_array($availableVPC['VpcId'], $potentialVPCs)){
-                return $availableVPC['VpcId'];
-            }
-        }
-        return null;
-    }
-
     public function assert(Request $request) : SecurityGroup
     {
         $sg = $this;
-        $request->acrossRegionAction(function(string $region, Ec2Client $ec2Client) use ($sg){
+        $request->acrossRegionAction(function (string $region, Ec2Client $ec2Client) use ($sg) {
             $vpcId = $this->getApplicableVpc($ec2Client);
             $exists = false;
             $allSecurityGroups = $ec2Client->describeSecurityGroups()->get('SecurityGroups');
-            foreach($allSecurityGroups as $ec2SecurityGroup){
-                if($ec2SecurityGroup['GroupName'] == $sg->getName()){
+            foreach ($allSecurityGroups as $ec2SecurityGroup) {
+                if ($ec2SecurityGroup['GroupName'] == $sg->getName()) {
                     $exists = true;
                     $groupId = $ec2SecurityGroup['GroupId'];
                 }
             }
 
-            if(!$exists) {
+            if (!$exists) {
                 $makeGroupResponse = $ec2Client->createSecurityGroup([
                     'GroupName' => $sg->getName(),
                     'Description' => sprintf(
@@ -122,7 +112,7 @@ class SecurityGroup
             foreach ($sg->getRulesInbound() as $inboundRule) {
                 $protocols = [];
                 $ipPermissions = [];
-                switch($inboundRule->getProtocol()){
+                switch ($inboundRule->getProtocol()) {
                     case "all":
                     case "any":
                         $protocols[] = 'tcp';
@@ -136,11 +126,11 @@ class SecurityGroup
                         break;
                 }
 
-                foreach($protocols as $protocol) {
+                foreach ($protocols as $protocol) {
                     $ipRanges = [];
                     $userIdGroupPair = [];
                     #Kint::dump($inboundRule->getSource(), $group)
-                    switch($inboundRule->getSource()){
+                    switch ($inboundRule->getSource()) {
                         case 'any':
                         case 'all':
                         case 'anywhere':
@@ -176,8 +166,8 @@ class SecurityGroup
                 ]);
                 try {
                     $ingressResponse = $ec2Client->authorizeSecurityGroupIngress($ingressRequest);
-                }catch(Ec2Exception $exception){
-                    if(!stripos($exception->getMessage(), "already exists")){
+                } catch (Ec2Exception $exception) {
+                    if (!stripos($exception->getMessage(), "already exists")) {
                         throw $exception;
                     }
                 }
@@ -196,6 +186,7 @@ class SecurityGroup
 
     /**
      * @param string $name
+     *
      * @return SecurityGroup
      */
     public function setName(string $name): SecurityGroup
@@ -214,6 +205,7 @@ class SecurityGroup
 
     /**
      * @param SecurityGroupRule[] $rulesInbound
+     *
      * @return SecurityGroup
      */
     public function setRulesInbound(array $rulesInbound): SecurityGroup
@@ -232,6 +224,7 @@ class SecurityGroup
 
     /**
      * @param SecurityGroupRule[] $rulesOutbound
+     *
      * @return SecurityGroup
      */
     public function setRulesOutbound(array $rulesOutbound): SecurityGroup
@@ -242,6 +235,7 @@ class SecurityGroup
 
     /**
      * @param SecurityGroupRule $rule
+     *
      * @return SecurityGroup
      */
     public function addRuleInbound(SecurityGroupRule $rule): SecurityGroup
@@ -252,6 +246,7 @@ class SecurityGroup
 
     /**
      * @param SecurityGroupRule $rule
+     *
      * @return SecurityGroup
      */
     public function addRuleOutbound(SecurityGroupRule $rule): SecurityGroup
@@ -262,7 +257,7 @@ class SecurityGroup
 
     public function parseConfig($config) : SecurityGroup
     {
-        if(isset($config['inbound'])) {
+        if (isset($config['inbound'])) {
             foreach ($config['inbound'] as $inboundRule) {
                 $this->addRuleInbound(
                     SecurityGroupRule::Factory($inboundRule)
@@ -270,7 +265,7 @@ class SecurityGroup
             }
         }
 
-        if(isset($config['outbound'])) {
+        if (isset($config['outbound'])) {
             foreach ($config['outbound'] as $outboundRule) {
                 $this->addRuleOutbound(
                     SecurityGroupRule::Factory($outboundRule)
@@ -279,5 +274,17 @@ class SecurityGroup
         }
 
         return $this;
+    }
+
+    private function getApplicableVpc(Ec2Client $ec2Client) : ?string
+    {
+        $potentialVPCs = $this->getApplicableVpcIds();
+        $availableVPCs = $ec2Client->describeVpcs()->get('Vpcs');
+        foreach ($availableVPCs as $availableVPC) {
+            if (in_array($availableVPC['VpcId'], $potentialVPCs)) {
+                return $availableVPC['VpcId'];
+            }
+        }
+        return null;
     }
 }

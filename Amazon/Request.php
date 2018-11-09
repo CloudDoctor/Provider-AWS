@@ -5,7 +5,6 @@ namespace CloudDoctor\Amazon;
 use Aws\Ec2\Ec2Client;
 use Aws\Pricing\PricingClient;
 use Aws\Result as AwsResult;
-use GuzzleHttp\Client as GuzzleClient;
 use CloudDoctor\Interfaces\RequestInterface;
 
 class Request implements RequestInterface
