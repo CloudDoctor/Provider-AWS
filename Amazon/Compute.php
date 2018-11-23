@@ -272,7 +272,6 @@ class Compute extends \CloudDoctor\Common\Compute
             foreach ($this->getType() as $type) {
                 try {
                     $config = $this->getEc2InstanceConfig($region, $type, $keyNames);
-                    \Kint::dump($config);//exit;
                     $response = $this->requester->getRegionEc2Client($region)
                         ->runInstances($config);
                     break;
