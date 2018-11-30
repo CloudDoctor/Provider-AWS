@@ -623,7 +623,7 @@ class Compute extends \CloudDoctor\Common\Compute
         while ($this->getState() != $targetState) {
             $tick++;
             echo "\r{$this->spinner($tick)} Waiting for state '{$targetState}'... current: '{$this->getState()}'...";
-            sleep(0.5);
+            sleep(3);
         }
         $this->blankLine();
     }
